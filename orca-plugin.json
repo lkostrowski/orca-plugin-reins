@@ -16,7 +16,7 @@
       {
         "id": "reins",
         "title": "Reins",
-        "icon": "check",
+        "icon": "layers",
         "entry": "src/panel.tsx",
         "ui": "components"
       }
