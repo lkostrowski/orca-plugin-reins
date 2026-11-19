@@ -33,18 +33,42 @@ install.
 
 Open the **Reins** tab in Orca's right sidebar.
 
-## Tell the agent about it
+## Install the skill
 
-Orca plugins cannot ship agent skills yet, so add the instructions yourself. For Claude Code,
-download [`skills/track-reins/SKILL.md`](skills/track-reins/SKILL.md) and add this to Claude's
-default arguments in Orca's agent settings:
+The agent needs the [`track-reins`](skills/track-reins/SKILL.md) instructions. Orca plugins
+cannot ship agent skills yet, so install them yourself.
+
+**1. Install the skill** with the community skills CLI (works for Claude Code, Codex and other
+agents):
+
+```sh
+npx skills add lkostrowski/orca-plugin-reins --skill track-reins -g
+```
+
+`-g` installs it for your user rather than one project; add `-a claude-code` (or another agent)
+to pick agents without the prompt. `npx skills update` updates it later.
+
+**2. Make it always on (Claude Code, recommended).** An installed skill loads only when the agent
+decides it is relevant. To have Claude track the board on every response, also add the file to
+its system prompt: in Orca's agent settings, add this to Claude's default arguments:
 
 ```
---append-system-prompt-file /path/to/SKILL.md
+--append-system-prompt-file /Users/<you>/.claude/skills/track-reins/SKILL.md
 ```
 
-Only new conversations pick it up; resumed ones keep the system prompt they started with.
-For other agents, give them the contents of `SKILL.md` through their own instructions mechanism.
+Use the absolute path, to be safe. Only new conversations pick it up; resumed ones
+keep the system prompt they started with.
+
+**Without the skills CLI**, download the file anywhere and point the flag at it:
+
+```sh
+mkdir -p ~/.claude/skills/track-reins
+curl -fsSL -o ~/.claude/skills/track-reins/SKILL.md \
+  https://raw.githubusercontent.com/lkostrowski/orca-plugin-reins/main/skills/track-reins/SKILL.md
+```
+
+**Other agents** without a system-prompt flag: paste the contents of `SKILL.md` into their
+global instructions (for Codex, `~/.codex/AGENTS.md`).
 
 ## Limits
 

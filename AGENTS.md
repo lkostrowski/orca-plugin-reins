@@ -23,14 +23,15 @@ Local Orca CLI: `orca` (1.4.264 at time of writing). `orca plugin types .` write
 | Piece | Where | Why |
 | --- | --- | --- |
 | State file | `<workspace>/.reins/state.json` | The only channel the agent has: no MCP, no plugin CLI for installed plugins. Agent reads/edits it with its normal file tools. |
-| Worker | `src/worker.ts` (`main`, `execution: "trusted-worker"`) | Needs Node `fs` to read/watch the state file and `workspace.list` (worker-only) to map workspace id → path. Hosts the hooks. |
+| Worker | `src/worker.ts` (`main`, `execution: "trusted-worker"`) | Needs Node `fs` to read/watch the state file and `workspace.list` (worker-only) to map workspace id → path. No hooks. |
 | Panel | `src/panel.tsx` (`ui: "components"`) | Native Orca controls, light/dark for free, no CSS. Talks to worker via `plugin.request`, listens to worker posts. |
 | Skill | `skills/track-reins/SKILL.md` | Agent instructions. See "Skill delivery". |
 
 Data flow:
 1. Panel subscribes to `workspace.changed`, asks worker `reins.get { workspaceId }`.
 2. Worker resolves path, reads `.reins/state.json`, `fs.watch`es it, `orca.panels.post('reins.changed', state)` on change.
-3. Panel edits → `plugin.request('reins.mutate', …)` → worker writes file atomically (write tmp + rename).
+3. Panel edits → `plugin.request('reins.save', { workspaceId, rev, state })` (whole board) → worker
+   refuses with `conflict` if the file's mtime ≠ `rev`, else writes atomically (tmp + rename).
 4. Agent edits same file → watcher → panel updates.
 
 Contract between panel and worker lives in `src/protocol.ts` (`declare module 'orca'` with
@@ -41,11 +42,20 @@ every new capability re-prompts the user on update.
 
 ## Skill delivery (`track-reins`)
 
-`contributes.skills` is **reserved and must stay empty** (manifest v2, Orca ≤1.4.264). For now
-the user pastes `skills/track-reins/SKILL.md` into Orca's agent system prompt by hand. Keep the
-file in agent-plugin skill format so it drops into `contributes.skills` once that ships.
-(Later option: `agent.launch.before` hook appending `--append-system-prompt`; restored sessions
-are not hooked.)
+`contributes.skills` is **reserved and must stay empty** (manifest v2, Orca ≤1.4.264), so the
+plugin cannot install the skill. Users install it themselves (README "Install the skill"):
+
+1. `npx skills add lkostrowski/orca-plugin-reins --skill track-reins -g` — the community skills
+   CLI (same one `orca skills install` uses) finds `skills/track-reins/` and links it into
+   Claude Code, Codex and other agents. A skill alone loads on demand, not on every response.
+2. For Claude, make it always-on: Orca's Claude default arguments (`agentDefaultArgs`) +=
+   `--append-system-prompt-file <abs path>/SKILL.md`. Needs a file path: Orca's native chat
+   refuses `$` and newlines in agent commands, so no `$(cat …)`. Use an absolute path.
+   Only new conversations pick it up (Claude snapshots its system prompt per conversation).
+
+Keep `SKILL.md` in agent-skill format (frontmatter `name`, `description`) so it keeps working
+with the skills CLI and drops into `contributes.skills` once that ships. Later option: an
+`agent.launch.before` hook appending the flag (restored sessions are not hooked).
 
 Skill content must tell the agent, on **every response**:
 1. Read `.reins/state.json` (create with `{ "version": 1, "groups": [] }` if missing).
@@ -63,7 +73,6 @@ orca plugin dev watch . --check   # load, stream logs, re-check each save
 orca plugin validate .            # manifest + host-call check (run before commit)
 orca plugin shot <plugin-key>     # PNG of the panel; read it to verify UI
 orca plugin dev request . reins.get --data '{"workspaceId":"…"}'
-orca plugin dev hook . agent.launch.before --data '…'
 orca plugin test .                # tests via orca/testing (mountWorker, panel kit)
 ```
 
