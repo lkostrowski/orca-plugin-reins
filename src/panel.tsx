@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Callout,
+  Card,
   Code,
   EmptyState,
   IconButton,
@@ -37,9 +38,9 @@ const collapsed = atom('collapsed', {} as Record<string, true>, { persist: 'work
 const foldedGroups = atom('foldedGroups', {} as Record<string, boolean>, { persist: 'workspace' })
 /** Todo or group being edited, with its draft. */
 const editing = atom<{ id: string; title: string; description: string; emoji: string; groupId: string } | null>(null)
-/** New-todo inputs, per group, and the new-group form. */
+/** New-todo inputs, per group, and the new-group form (null = closed). */
 const newTodo = atom<Record<string, string>>({})
-const newGroup = atom({ emoji: '', title: '' })
+const newGroup = atom<{ emoji: string; title: string } | null>(null)
 
 const newId = () => Math.random().toString(36).slice(2, 8)
 
@@ -343,23 +344,35 @@ function GroupView({ group, groups, all }: { group: Group; groups: Group[]; all:
   )
 }
 
+// ponytail: Orca's panel kit has no Modal; a Card at the top of the panel stands in for one.
 function AddGroup() {
-  const g = read(newGroup)
+  const g = read(newGroup)!
   const add = () => {
     if (!g.title.trim()) return
-    set(newGroup, { emoji: '', title: '' })
+    set(newGroup, null)
     void change((s) => s.groups.push({ id: newId(), emoji: g.emoji.trim() || '📌', title: g.title.trim(), todos: [] }))
   }
   return (
-    <Box direction="row" gap="xs" align="center">
-      <Box width={64} shrink={false}>
-        <Input label="Emoji" labelHidden placeholder="📌" maxLength={8} value={g.emoji} onChange={(emoji) => set(newGroup, { ...g, emoji })} />
-      </Box>
-      <Box grow>
-        <Input label="New group" labelHidden placeholder="New group…" value={g.title} onChange={(title) => set(newGroup, { ...g, title })} onSubmit={add} />
-      </Box>
-      <IconButton icon="add" label="Add group" onPress={add} />
-    </Box>
+    <Card title="New group">
+      <Stack gap="sm">
+        <Box direction="row" gap="xs" align="center">
+          <Box width={64} shrink={false}>
+            <Input label="Emoji" labelHidden placeholder="📌" maxLength={8} value={g.emoji} onChange={(emoji) => set(newGroup, { ...g, emoji })} />
+          </Box>
+          <Box grow>
+            <Input label="Title" labelHidden placeholder="Group title…" value={g.title} onChange={(title) => set(newGroup, { ...g, title })} onSubmit={add} />
+          </Box>
+        </Box>
+        <Row gap="xs">
+          <Button size="sm" onPress={add}>
+            Create
+          </Button>
+          <Button size="sm" variant="ghost" onPress={() => set(newGroup, null)}>
+            Cancel
+          </Button>
+        </Row>
+      </Stack>
+    </Card>
   )
 }
 
@@ -382,15 +395,18 @@ export default function Panel() {
         <Text muted size="xs" truncate>
           .reins/state.json
         </Text>
-        <Switch label="Show archived" checked={all} onChange={(v) => set(showArchived, v)} />
+        <Row gap="xs" align="center">
+          <Switch label="Show archived" checked={all} onChange={(v) => set(showArchived, v)} />
+          <IconButton icon="add" label="New group" variant="ghost" size="sm" onPress={() => set(newGroup, { emoji: '', title: '' })} />
+        </Row>
       </Row>
+      {read(newGroup) ? <AddGroup /> : null}
       {groups.length === 0 ? (
-        <EmptyState title="Nothing tracked yet" description="The agent adds todos as it works, or add a group below." icon="check" />
+        <EmptyState title="Nothing tracked yet" description="The agent adds todos as it works, or add a group with +." icon="check" />
       ) : null}
       {groups.map((g) => (
         <GroupView key={g.id} group={g} groups={s.state.groups} all={all} />
       ))}
-      <AddGroup />
     </Stack>
   )
 }

@@ -84,6 +84,8 @@ Needs Orca 1.4.248 or later. No build step: Orca transpiles the TypeScript.
 ```sh
 orca plugin types .                 # typings into .orca/types
 orca plugin dev load . --approve …  # load as local.reins (prints the fingerprint first)
+scripts/dev-install.sh [--approve …] # or as local.reins-dev "Reins (dev)", beside an installed Reins
+scripts/dev-install.sh --undo       # unload it and restore orca-plugin.json
 orca plugin test .                  # worker and panel tests
 orca plugin validate .
 orca plugin shot local.reins        # PNG of the panel
