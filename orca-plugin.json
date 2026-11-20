@@ -3,7 +3,7 @@
   "manifestVersion": 2,
   "id": "reins",
   "name": "Reins",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Per-workspace todos and open questions that the coding agent tracks while it works.",
   "engines": {
     "orca": ">=1.4.248"
