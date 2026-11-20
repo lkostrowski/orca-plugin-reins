@@ -17,6 +17,7 @@ import {
   read,
   Row,
   Select,
+  Separator,
   set,
   Spinner,
   Stack,
@@ -32,14 +33,14 @@ const workspaceId = atom<string | null | undefined>(undefined)
 const snap = atom<Snapshot | null>(null)
 const error = atom<string | null>(null)
 const showArchived = atom('showArchived', false, { persist: 'plugin' })
-/** Todos whose description the person hid; descriptions show by default. */
-const collapsed = atom('collapsed', {} as Record<string, true>, { persist: 'workspace' })
+/** Description shown (true) or hidden (false) by the person; unset = open todos show, closed hide. */
+const expanded = atom('expanded', {} as Record<string, boolean>, { persist: 'workspace' })
 /** Groups the person folded (or unfolded, for archived ones), per workspace. */
 const foldedGroups = atom('foldedGroups', {} as Record<string, boolean>, { persist: 'workspace' })
 /** Todo or group being edited, with its draft. */
 const editing = atom<{ id: string; title: string; description: string; emoji: string; groupId: string } | null>(null)
-/** New-todo inputs, per group, and the new-group form (null = closed). */
-const newTodo = atom<Record<string, string>>({})
+/** The new-todo form (shown instead of its group's list) and the new-group form; null = closed. */
+const newTodo = atom<{ groupId: string; title: string; description: string } | null>(null)
 const newGroup = atom<{ emoji: string; title: string } | null>(null)
 
 const newId = () => Math.random().toString(36).slice(2, 8)
@@ -98,7 +99,7 @@ function TodoEditor({ groups }: { groups: Group[] }) {
   const draft = read(editing)!
   const patch = (p: Partial<typeof draft>) => update(editing, (d) => (d ? { ...d, ...p } : d))
   return (
-    <Stack gap="sm">
+    <Stack gap="md">
       <Input label="Title" value={draft.title} onChange={(title) => patch({ title })} />
       <Textarea label="Description (markdown)" rows={5} value={draft.description} onChange={(description) => patch({ description })} />
       <Select
@@ -107,26 +108,7 @@ function TodoEditor({ groups }: { groups: Group[] }) {
         options={groups.map((g) => ({ value: g.id, label: `${g.emoji} ${g.title}` }))}
         onChange={(groupId) => patch({ groupId })}
       />
-      <Row gap="xs">
-        <Button
-          size="sm"
-          onPress={() =>
-            change((s) => {
-              const { group, todo, index } = findTodo(s, draft.id)
-              todo.title = draft.title.trim() || todo.title
-              todo.description = draft.description || undefined
-              if (group.id !== draft.groupId) {
-                group.todos.splice(index, 1)
-                findGroup(s, draft.groupId).todos.push(todo)
-              }
-            }).then(() => set(editing, null))
-          }
-        >
-          Save
-        </Button>
-        <Button size="sm" variant="ghost" onPress={() => set(editing, null)}>
-          Cancel
-        </Button>
+      <Row gap="xs" justify="between">
         <Button
           size="sm"
           variant="ghost"
@@ -140,18 +122,69 @@ function TodoEditor({ groups }: { groups: Group[] }) {
         >
           Delete
         </Button>
+        <Row gap="xs">
+          <Button size="sm" variant="ghost" onPress={() => set(editing, null)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onPress={() =>
+              change((s) => {
+                const { group, todo, index } = findTodo(s, draft.id)
+                todo.title = draft.title.trim() || todo.title
+                todo.description = draft.description || undefined
+                if (group.id !== draft.groupId) {
+                  group.todos.splice(index, 1)
+                  findGroup(s, draft.groupId).todos.push(todo)
+                }
+              }).then(() => set(editing, null))
+            }
+          >
+            Save
+          </Button>
+        </Row>
       </Row>
     </Stack>
   )
 }
 
-/** Inline `code` as Code, the rest as text. */
+function NewTodo() {
+  const draft = read(newTodo)!
+  const patch = (p: Partial<typeof draft>) => update(newTodo, (d) => (d ? { ...d, ...p } : d))
+  const save = () => {
+    const title = draft.title.trim()
+    if (!title) return
+    void change((s) =>
+      findGroup(s, draft.groupId).todos.push({ id: newId(), title, description: draft.description || undefined, status: 'open' })
+    ).then(() => set(newTodo, null))
+  }
+  return (
+    <Stack gap="md">
+      <Input label="Title" value={draft.title} onChange={(title) => patch({ title })} onSubmit={save} />
+      <Textarea label="Description (markdown)" rows={5} value={draft.description} onChange={(description) => patch({ description })} />
+      <Row gap="xs" justify="end">
+        <Button size="sm" variant="ghost" onPress={() => set(newTodo, null)}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={!draft.title.trim()} onPress={save}>
+          Save
+        </Button>
+      </Row>
+    </Stack>
+  )
+}
+
+/** Inline `code` as Code, **bold** as semibold Text, the rest as text. */
 function inline(line: string) {
-  return line.split('`').map((part, i) => (i % 2 ? <Code>{part}</Code> : part))
+  return line.split('`').flatMap((part, i) =>
+    i % 2
+      ? [<Code key={`c${i}`}>{part}</Code>]
+      : part.split('**').map((t, j) => (j % 2 ? <Text key={`b${i}.${j}`} muted size="sm" weight="semibold">{t}</Text> : t))
+  )
 }
 
 // ponytail: Markdown cannot be muted, so descriptions get a line renderer: bullets, inline and
-// fenced code. Bold, italics and links show as plain text; render with Markdown if they matter.
+// fenced code, bold. Italics and links show as plain text; render with Markdown if they matter.
 function Description({ text }: { text: string }) {
   let fenced = false
   const lines: { code: boolean; text: string }[] = []
@@ -171,9 +204,9 @@ function Description({ text }: { text: string }) {
 }
 
 function TodoView({ todo, groups }: { todo: Todo; groups: Group[] }) {
-  const open = !read(collapsed)[todo.id]
   if (read(editing)?.id === todo.id) return <TodoEditor groups={groups} />
   const closed = todo.status === 'closed'
+  const open = read(expanded)[todo.id] ?? !closed
   const edit = () =>
     set(editing, {
       id: todo.id,
@@ -190,7 +223,11 @@ function TodoView({ todo, groups }: { todo: Todo; groups: Group[] }) {
         variant="ghost"
         tone={closed ? 'success' : 'neutral'}
         size="sm"
-        onPress={() => change((s) => (findTodo(s, todo.id).todo.status = closed ? 'open' : 'closed'))}
+        onPress={() => {
+          // Back to the default for the new status: closing collapses, reopening expands.
+          update(expanded, ({ [todo.id]: _, ...rest }) => rest)
+          return change((s) => (findTodo(s, todo.id).todo.status = closed ? 'open' : 'closed'))
+        }}
       />
       <Box grow>
         <List>
@@ -209,12 +246,12 @@ function TodoView({ todo, groups }: { todo: Todo; groups: Group[] }) {
           label={open ? 'Hide details' : 'Show details'}
           variant="ghost"
           size="sm"
-          onPress={() => update(collapsed, ({ [todo.id]: _, ...rest }) => (open ? { ...rest, [todo.id]: true } : rest))}
+          onPress={() => update(expanded, (m) => ({ ...m, [todo.id]: !open }))}
         />
       ) : null}
       {closed ? (
         <IconButton
-          icon={todo.archived ? 'refresh' : 'remove'}
+          icon={todo.archived ? 'refresh' : 'package'}
           label={todo.archived ? 'Unarchive' : 'Archive'}
           variant="ghost"
           size="sm"
@@ -229,10 +266,15 @@ function GroupEditor() {
   const draft = read(editing)!
   return (
     <Stack gap="sm">
-      <Row gap="xs">
-        <Input label="Emoji" value={draft.emoji} maxLength={8} onChange={(emoji) => update(editing, (d) => d && { ...d, emoji })} />
-        <Input label="Title" value={draft.title} onChange={(title) => update(editing, (d) => d && { ...d, title })} />
-      </Row>
+      <Box direction="row" gap="xs">
+        {/* ponytail: 36px ≈ input height, so the icon field reads square. */}
+        <Box width={36} shrink={false}>
+          <Input label="Icon" value={draft.emoji} maxLength={8} onChange={(emoji) => update(editing, (d) => d && { ...d, emoji })} />
+        </Box>
+        <Box grow>
+          <Input label="Title" value={draft.title} onChange={(title) => update(editing, (d) => d && { ...d, title })} />
+        </Box>
+      </Box>
       <Row gap="xs">
         <Button
           size="sm"
@@ -267,15 +309,10 @@ function GroupEditor() {
 }
 
 function GroupView({ group, groups, all }: { group: Group; groups: Group[]; all: boolean }) {
-  const todos = group.todos.filter((t) => all || !t.archived)
+  // Open todos first; sort is stable, so each half keeps the file's order. View only, the file is untouched.
+  const todos = group.todos.filter((t) => all || !t.archived).sort((x, y) => +(x.status === 'closed') - +(y.status === 'closed'))
   const openCount = group.todos.filter((t) => t.status === 'open').length
   const closedVisible = group.todos.some((t) => t.status === 'closed' && !t.archived)
-  const draft = read(newTodo)[group.id] ?? ''
-  const addTodo = (title: string) => {
-    if (!title.trim()) return
-    update(newTodo, (m) => ({ ...m, [group.id]: '' }))
-    void change((s) => findGroup(s, group.id).todos.push({ id: newId(), title: title.trim(), status: 'open' }))
-  }
   const folded = read(foldedGroups)[group.id] ?? !!group.archived
   const fold = () => update(foldedGroups, (m) => ({ ...m, [group.id]: !folded }))
   return (
@@ -284,7 +321,6 @@ function GroupView({ group, groups, all }: { group: Group; groups: Group[]; all:
         <GroupEditor />
       ) : (
         <Box direction="row" gap="xs" align="center">
-          <IconButton icon={folded ? 'next' : 'collapse'} label={folded ? 'Expand group' : 'Collapse group'} variant="ghost" size="sm" onPress={fold} />
           <Box grow>
             <List>
               <ListItem
@@ -294,6 +330,16 @@ function GroupView({ group, groups, all }: { group: Group; groups: Group[]; all:
               />
             </List>
           </Box>
+          <IconButton
+            icon="add"
+            label="New todo"
+            variant="ghost"
+            size="sm"
+            onPress={() => {
+              set(newTodo, { groupId: group.id, title: '', description: '' })
+              update(foldedGroups, (m) => ({ ...m, [group.id]: false }))
+            }}
+          />
           <IconButton
             icon="edit"
             label="Edit group"
@@ -313,7 +359,7 @@ function GroupView({ group, groups, all }: { group: Group; groups: Group[]; all:
             />
           ) : null}
           <IconButton
-            icon={group.archived ? 'refresh' : 'remove'}
+            icon={group.archived ? 'refresh' : 'package'}
             label={group.archived ? 'Unarchive group' : 'Archive group'}
             variant="ghost"
             size="sm"
@@ -321,24 +367,14 @@ function GroupView({ group, groups, all }: { group: Group; groups: Group[]; all:
           />
         </Box>
       )}
-      {folded ? null : (
-        <Box paddingX="lg">
-          <Stack gap="lg">
-            <Stack gap="md">
-              {todos.map((todo) => (
-                <TodoView key={todo.id} todo={todo} groups={groups} />
-              ))}
-            </Stack>
-            <Input
-              label="New todo"
-              labelHidden
-              placeholder="Add a todo…"
-              value={draft}
-              onChange={(v) => update(newTodo, (m) => ({ ...m, [group.id]: v }))}
-              onSubmit={addTodo}
-            />
-          </Stack>
-        </Box>
+      {folded ? null : read(newTodo)?.groupId === group.id ? (
+        <NewTodo />
+      ) : (
+        <Stack gap="md">
+          {todos.map((todo) => (
+            <TodoView key={todo.id} todo={todo} groups={groups} />
+          ))}
+        </Stack>
       )}
     </Stack>
   )
@@ -404,9 +440,11 @@ export default function Panel() {
       {groups.length === 0 ? (
         <EmptyState title="Nothing tracked yet" description="The agent adds todos as it works, or add a group with +." icon="check" />
       ) : null}
-      {groups.map((g) => (
+      {/* The separator sits in the Stack's gap, so groups get gap + line + gap between them. */}
+      {groups.flatMap((g, i) => [
+        i ? <Separator key={`sep-${g.id}`} /> : null,
         <GroupView key={g.id} group={g} groups={s.state.groups} all={all} />
-      ))}
+      ])}
     </Stack>
   )
 }
