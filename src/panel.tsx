@@ -208,6 +208,12 @@ function Description({ text }: { text: string }) {
 /** Markdown blockquote: `>` before every line, so a pasted todo reads as one quote. */
 const quote = (text: string) => text.replace(/^/gm, '> ').replace(/ $/gm, '')
 
+/** Puts the todo, quoted, on the clipboard (through the worker). */
+const copy = (todo: Todo) =>
+  plugin
+    .request('reins.copy', { text: quote(todo.description ? `${todo.title}\n\n${todo.description}` : todo.title) })
+    .then(() => set(error, null), (e) => set(error, (e as Error).message))
+
 function TodoView({ todo, groups }: { todo: Todo; groups: Group[] }) {
   if (read(editing)?.id === todo.id) return <TodoEditor groups={groups} />
   const closed = todo.status === 'closed'
@@ -222,32 +228,18 @@ function TodoView({ todo, groups }: { todo: Todo; groups: Group[] }) {
     })
   return (
     <Box direction="row" gap="xs" align="start">
-      <Box direction="column" gap="xs" shrink={false}>
-        <IconButton
-          icon={closed ? 'check' : 'stop'}
-          label={closed ? `Reopen “${todo.title}”` : `Close “${todo.title}”`}
-          variant="ghost"
-          tone={closed ? 'success' : 'neutral'}
-          size="sm"
-          onPress={() => {
-            // Back to the default for the new status: closing collapses, reopening expands.
-            update(expanded, ({ [todo.id]: _, ...rest }) => rest)
-            return change((s) => (findTodo(s, todo.id).todo.status = closed ? 'open' : 'closed'))
-          }}
-        />
-        <IconButton
-          icon="copy"
-          label={`Copy “${todo.title}”`}
-          variant="ghost"
-          // ponytail: IconButton has no `muted`; the smaller size is the closest to dimmed.
-          size="xs"
-          onPress={() =>
-            plugin
-              .request('reins.copy', { text: quote(todo.description ? `${todo.title}\n\n${todo.description}` : todo.title) })
-              .then(() => set(error, null), (e) => set(error, (e as Error).message))
-          }
-        />
-      </Box>
+      <IconButton
+        icon={closed ? 'check' : 'stop'}
+        label={closed ? `Reopen “${todo.title}”` : `Close “${todo.title}”`}
+        variant="ghost"
+        tone={closed ? 'success' : 'neutral'}
+        size="sm"
+        onPress={() => {
+          // Back to the default for the new status: closing collapses, reopening expands.
+          update(expanded, ({ [todo.id]: _, ...rest }) => rest)
+          return change((s) => (findTodo(s, todo.id).todo.status = closed ? 'open' : 'closed'))
+        }}
+      />
       <Box grow>
         <List>
           {/* A closed todo's title dims like its description; an open one keeps the bright title. */}
@@ -259,24 +251,27 @@ function TodoView({ todo, groups }: { todo: Todo; groups: Group[] }) {
           </ListItem>
         </List>
       </Box>
-      {todo.description ? (
-        <IconButton
-          icon={open ? 'collapse' : 'expand'}
-          label={open ? 'Hide details' : 'Show details'}
-          variant="ghost"
-          size="sm"
-          onPress={() => update(expanded, (m) => ({ ...m, [todo.id]: !open }))}
-        />
-      ) : null}
-      {closed ? (
-        <IconButton
-          icon={todo.archived ? 'refresh' : 'package'}
-          label={todo.archived ? 'Unarchive' : 'Archive'}
-          variant="ghost"
-          size="sm"
-          onPress={() => change((s) => (findTodo(s, todo.id).todo.archived = !todo.archived || undefined))}
-        />
-      ) : null}
+      <Box direction="column" gap="xs" shrink={false}>
+        {todo.description ? (
+          <IconButton
+            icon={open ? 'collapse' : 'expand'}
+            label={open ? 'Hide details' : 'Show details'}
+            variant="ghost"
+            size="sm"
+            onPress={() => update(expanded, (m) => ({ ...m, [todo.id]: !open }))}
+          />
+        ) : null}
+        <IconButton icon="copy" label={`Copy “${todo.title}”`} variant="ghost" size="sm" onPress={() => copy(todo)} />
+        {closed ? (
+          <IconButton
+            icon={todo.archived ? 'refresh' : 'package'}
+            label={todo.archived ? 'Unarchive' : 'Archive'}
+            variant="ghost"
+            size="sm"
+            onPress={() => change((s) => (findTodo(s, todo.id).todo.archived = !todo.archived || undefined))}
+          />
+        ) : null}
+      </Box>
     </Box>
   )
 }
@@ -442,7 +437,7 @@ export default function Panel() {
   return (
     <Stack gap="lg">
       {err ? (
-        <Callout tone="warning" title="Not saved">
+        <Callout tone="warning">
           {err}
         </Callout>
       ) : null}

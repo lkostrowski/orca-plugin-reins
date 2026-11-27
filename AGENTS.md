@@ -97,3 +97,7 @@ Board file is git-ignored by a `.reins/.gitignore` (`*`) the worker writes, so u
 
 - Should the worker nudge agents that forget (e.g. on `agent.status.changed` → `done`, check the
   file's mtime)? Not planned until the system prompt proves insufficient.
+- TODO: "send to agent" button that puts the quoted todo into the agent's prompt input (no Enter).
+  Blocked: Orca has no host API for the native chat input. `terminal.sendText` (`terminal:send`)
+  only reaches terminal agents, and needs `agent:read` + `agents.list` to find the terminal;
+  tried and dropped. Revisit when Orca ships a chat-input API; copy button is the fallback.
