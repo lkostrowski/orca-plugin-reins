@@ -1,6 +1,7 @@
 // Owns <workspace>/.reins/state.json: the agent edits it with its own file tools, the panel
 // through this worker. One file per Orca workspace (worktree or folder).
 import type { OrcaWorkerApi } from 'orca/worker'
+import { execFileSync } from 'node:child_process'
 import { watch, type FSWatcher } from 'node:fs'
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -76,6 +77,21 @@ export default function activate(orca: OrcaWorkerApi): void {
     await writeFile(tmp, JSON.stringify(state, null, 2) + '\n')
     await rename(tmp, fileOf(path))
     return load(workspaceId, path)
+  })
+
+  // ponytail: Linux tries Wayland then X11; add more tools if someone has neither.
+  orca.panels.handle('reins.copy', async ({ text }) => {
+    const tools: [string, string[]][] =
+      process.platform === 'darwin' ? [['pbcopy', []]]
+      : process.platform === 'win32' ? [['clip', []]]
+      : [['wl-copy', []], ['xclip', ['-selection', 'clipboard']]]
+    for (const [cmd, args] of tools) {
+      try {
+        execFileSync(cmd, args, { input: text, env: { ...process.env, LC_CTYPE: 'UTF-8' } }) // pbcopy mangles non-ASCII without it
+        return null
+      } catch {}
+    }
+    throw fail('no_clipboard', 'No clipboard tool found')
   })
 }
 

@@ -27,6 +27,8 @@ declare module 'orca' {
     'reins.get': { input: { workspaceId: string }; output: Snapshot }
     /** Replaces the board; `conflict` when the file changed since `rev`. */
     'reins.save': { input: { workspaceId: string; rev: number; state: ReinsState }; output: Snapshot }
+    /** Puts `text` on the OS clipboard (the panel frame has no clipboard access). */
+    'reins.copy': { input: { text: string }; output: null }
   }
   interface PluginPanelEvents {
     /** The file changed on disk (the agent, or a save). */
